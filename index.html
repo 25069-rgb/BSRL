@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buckshot Roulette - Web Edition</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+        
+        body {
+            font-family: 'Courier Prime', monospace;
+            background-color: #0d0c0c;
+        }
+
+        /* CRT 모니터 느낌의 스캔라인 효과 */
+        .crt::after {
+            content: " ";
+            display: block;
+            position: fixed;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            aspect-ratio: auto;
+            background-size: 100% 3px, 3px 100%;
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        /* 흔들림 효과 */
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(0px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(2px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(2px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(0deg); }
+        }
+
+        .screen-shake {
+            animation: shake 0.5s;
+            animation-iteration-count: 1;
+        }
+
+        /* 붉은 플래시 효과 */
+        @keyframes red-flash {
+            0% { background-color: rgba(220, 38, 38, 0.8); }
+            100% { background-color: transparent; }
+        }
+
+        .flash-red {
+            animation: red-flash 0.6s ease-out;
+        }
+
+        /* 흰색 플래시 효과 */
+        @keyframes white-flash {
+            0% { background-color: rgba(255, 255, 255, 0.6); }
+            100% { background-color: transparent; }
+        }
+
+        .flash-white {
+            animation: white-flash 0.4s ease-out;
+        }
+    </style>
+</head>
+<body class="crt text-stone-200 min-h-screen flex flex-col justify-between overflow-x-hidden select-none">
+
+    <!-- 배경 플래시 레이어 -->
+    <div id="flash-overlay" class="fixed inset-0 pointer-events-none z-50"></div>
+
+    <!-- 로비/스타트 화면 -->
+    <div id="start-screen" class="fixed inset-0 bg-black z-40 flex flex-col items-center justify-center p-4">
+        <div class="max-w-md w-full text-center space-y-6 border-2 border-red-900 bg-stone-950 p-8 rounded shadow-2xl">
+            <h1 class="text-4xl font-bold tracking-widest text-red-600 animate-pulse">BUCKSHOT ROULETTE</h1>
+            <p class="text-xs text-stone-500">목숨을 건 무자비한 룰렛. 딜러와의 단판 승부.</p>
+            
+            <!-- 닉네임 입력 창 -->
+            <div class="text-left space-y-1 bg-stone-900/30 p-4 border border-stone-800 rounded">
+                <label for="nickname-input" class="text-xs text-red-500 font-bold tracking-widest block">SIGNATURE (계약서 서명 이름):</label>
+                <input type="text" id="nickname-input" maxlength="10" placeholder="YOU" class="w-full bg-stone-950 border border-stone-700 focus:border-red-600 text-stone-200 text-sm font-bold tracking-widest px-3 py-2 rounded focus:outline-none transition-colors uppercase">
+                <span class="text-[10px] text-stone-600 block mt-1">미입력 시 기본 이름 'YOU'로 자동 서명됩니다.</span>
+            </div>
+
+            <div class="border border-stone-800 p-4 text-left text-xs space-y-2 text-stone-400 bg-stone-900/50">
+                <p class="text-red-500 font-bold">⚠️ 게임 규칙:</p>
+                <p>1. 매 라운드마다 샷건에 실탄과 공포탄이 무작위로 충전됩니다.</p>
+                <p>2. 본인에게 발사 시 <b>공포탄</b>이면 기회가 한 번 더 주어집니다.</p>
+                <p>3. 아이템을 전략적으로 활용해 딜러의 체력을 0으로 만드세요.</p>
+            </div>
+
+            <button onclick="startGame()" class="w-full bg-red-700 hover:bg-red-600 active:bg-red-800 text-white font-bold py-3 px-6 rounded transition-colors tracking-wide border-b-4 border-red-950">
+                계약서에 서명하기 (게임 시작)
+            </button>
+        </div>
+    </div>
+
+    <!-- 본 게임 화면 -->
+    <div id="game-container" class="hidden flex-1 flex flex-col justify-between max-w-5xl w-full mx-auto p-4 lg:p-6 space-y-4">
+        
+        <!-- 상단 헤더 / 알림판 -->
+        <div class="flex justify-between items-center border-b border-stone-800 pb-2">
+            <div>
+                <span class="text-xs text-stone-500">SESSION ID</span>
+                <span class="text-xs text-red-500 font-bold ml-1" id="session-display">#000000</span>
+            </div>
+            <div class="text-center">
+                <span class="px-3 py-1 bg-stone-900 border border-stone-700 text-xs text-amber-500 rounded font-bold" id="round-indicator">
+                    ROUND 1
+                </span>
+            </div>
+            <div class="text-right">
+                <span class="text-xs text-stone-500">BULLETS REMAINING:</span>
+                <span class="text-xs text-stone-200 font-bold ml-1" id="bullets-count">0</span>
+            </div>
+        </div>
+
+        <!-- 메인 배틀 테이블 -->
+        <div class="flex-1 grid grid-rows-3 gap-4 my-2">
+            
+            <!-- 1. 딜러 영역 (상단) -->
+            <div class="border border-stone-800 bg-stone-950/80 rounded p-4 flex flex-col justify-between relative overflow-hidden gap-3">
+                <div class="absolute top-2 right-2 flex items-center space-x-1" id="dealer-handcuffed-indicator">
+                    <!-- 수갑 아이콘 (비활성/활성) -->
+                </div>
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h2 class="text-sm font-bold text-red-500 flex items-center gap-1">
+                            <span class="w-2 h-2 bg-red-600 rounded-full animate-ping"></span>
+                            DEALER (딜러)
+                        </h2>
+                        <div class="flex flex-wrap gap-1 mt-1.5" id="dealer-hp-container">
+                            <!-- 체력 디피브릴레이터 아이콘 -->
+                        </div>
+                    </div>
+                    <div id="dealer-bubble" class="hidden bg-stone-900 border border-stone-700 text-xs px-3 py-1.5 rounded max-w-xs text-stone-300">
+                        ...
+                    </div>
+                </div>
+
+                <!-- 딜러 아이템 영역 (체력 슬롯 밑으로 배치) -->
+                <div class="border-t border-stone-900 pt-2">
+                    <span class="text-[10px] text-stone-500 block mb-1">DEALER ITEMS</span>
+                    <div class="flex gap-2 mt-1 min-h-[44px] items-center" id="dealer-items-container">
+                        <!-- 딜러 아이템 리스트 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. 중앙 테이블 (샷건 & 상태판) -->
+            <div class="border border-stone-800 bg-stone-900/50 rounded p-4 flex flex-col justify-center items-center relative min-h-[160px]">
+                
+                <!-- 톱질된 총 표시 -->
+                <div id="saw-active-indicator" class="absolute top-2 left-2 hidden bg-red-950 border border-red-700 text-[10px] text-red-400 px-2 py-0.5 rounded animate-pulse">
+                    ⚠️ 톱질됨 (데미지 2배!)
+                </div>
+
+                <!-- 전체 총알 수량만 표시 (실탄/공포탄 수량 비공개) -->
+                <div id="magazine-info" class="flex gap-4 mb-4 bg-black/60 px-4 py-2 rounded border border-stone-800">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-6 bg-amber-600 rounded-sm inline-block border border-amber-950"></span>
+                        <span class="text-xs text-stone-400">탄창 잔여: <b class="text-amber-500" id="bullets-count-main">0</b>발</span>
+                    </div>
+                </div>
+
+                <!-- 샷건 그래픽 시각화 -->
+                <div class="relative w-72 h-16 flex items-center justify-center">
+                    <!-- 단순 SVG 샷건 그래픽 -->
+                    <svg id="shotgun-svg" class="w-full h-full text-stone-600 transition-transform duration-300" viewBox="0 0 200 40" fill="currentColor">
+                        <!-- 개머리판 -->
+                        <path d="M10 25 C 10 25, 5 35, 2 35 C 0 32, 2 15, 5 12 C 15 12, 35 18, 45 20 Z" fill="#4a3728"/>
+                        <!-- 리시버/몸통 -->
+                        <rect x="45" y="16" width="50" height="12" fill="#2d2d2d" rx="2" />
+                        <!-- 총열 -->
+                        <rect x="95" y="17" width="95" height="7" fill="#1f1f1f" />
+                        <!-- 장전 손잡이 -->
+                        <rect x="75" y="24" width="25" height="4" fill="#3d3d3d" />
+                    </svg>
+                    <!-- 총구 화염 (발사 시 활성화) -->
+                    <div id="muzzle-flash" class="absolute right-0 top-1/2 -translate-y-1/2 w-16 h-16 bg-yellow-400 rounded-full blur-md opacity-0 pointer-events-none transition-all"></div>
+                </div>
+
+                <!-- 상황 안내 메시지 전광판 -->
+                <div class="mt-4 text-center">
+                    <p id="action-text" class="text-xs md:text-sm text-stone-400 font-bold tracking-wider uppercase text-yellow-500">
+                        장전하는 중...
+                    </p>
+                </div>
+            </div>
+
+            <!-- 3. 플레이어 영역 (하단) -->
+            <div class="border border-stone-800 bg-stone-950/80 rounded p-4 flex flex-col justify-between relative overflow-hidden gap-3">
+                <div class="absolute top-2 right-2 flex items-center space-x-1" id="player-handcuffed-indicator">
+                    <!-- 수갑 아이콘 -->
+                </div>
+                <div>
+                    <h2 class="text-sm font-bold text-green-500 flex items-center gap-1">
+                        <span class="w-2 h-2 bg-green-600 rounded-full"></span>
+                        <span id="player-name-display" class="uppercase">YOU</span> (플레이어)
+                    </h2>
+                    <div class="flex flex-wrap gap-1 mt-1.5" id="player-hp-container">
+                        <!-- 체력 디피브릴레이터 아이콘 -->
+                    </div>
+                </div>
+
+                <!-- 플레이어 아이템 영역 (체력 슬롯 밑으로 배치) -->
+                <div class="border-t border-stone-900 pt-2">
+                    <span class="text-[10px] text-stone-500 block mb-1">YOUR ITEMS</span>
+                    <div class="flex gap-2 mt-1 min-h-[44px] items-center" id="player-items-container">
+                        <!-- 내 아이템 리스트 -->
+                    </div>
+                </div>
+
+                <!-- 플레이어 인터랙션 조작부 -->
+                <div id="controls" class="mt-1 grid grid-cols-2 gap-4">
+                    <button onclick="shoot(true)" id="btn-shoot-self" class="bg-stone-800 hover:bg-stone-700 active:bg-stone-900 border border-stone-700 text-stone-200 text-xs font-bold py-2.5 rounded tracking-wider transition-colors disabled:opacity-50">
+                        👉 자신에게 쏘기
+                    </button>
+                    <button onclick="shoot(false)" id="btn-shoot-dealer" class="bg-red-950/80 hover:bg-red-900 active:bg-red-950 border border-red-800 text-red-200 text-xs font-bold py-2.5 rounded tracking-wider transition-colors disabled:opacity-50">
+                        🔫 딜러에게 쏘기
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- 돋보기 사용 시 정찰 모달 -->
+    <div id="magnifier-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4">
+        <div class="border-2 border-amber-600 bg-stone-950 p-6 rounded max-w-xs w-full text-center space-y-4">
+            <h3 class="text-amber-500 font-bold tracking-widest text-sm">돋보기로 챔버 들여다보기</h3>
+            <p class="text-xs text-stone-400">현재 약실에 장전된 총알은 다음과 같습니다:</p>
+            <div class="flex justify-center my-4">
+                <div id="peek-bullet-graphic" class="w-8 h-16 rounded border-2 flex items-center justify-center font-bold text-xs uppercase">
+                    실탄
+                </div>
+            </div>
+            <button onclick="closeMagnifier()" class="w-full bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-bold py-2 rounded">
+                확인 완료
+            </button>
+        </div>
+    </div>
+
+    <!-- 엔드 스크린 (승리/패배) -->
+    <div id="end-screen" class="fixed inset-0 bg-black/95 z-50 hidden flex flex-col items-center justify-center p-4">
+        <div class="max-w-sm w-full text-center space-y-6 border-2 border-stone-800 bg-stone-950 p-8 rounded shadow-2xl">
+            <h2 id="end-title" class="text-3xl font-bold tracking-widest text-red-600">GAME OVER</h2>
+            <p id="end-desc" class="text-xs text-stone-400 leading-relaxed">
+                당신은 어둠 속에서 눈을 감았습니다. 딜러가 영혼을 거두어갑니다.
+            </p>
+            <div class="border-t border-stone-800 pt-4">
+                <button onclick="returnToStartScreen()" class="w-full bg-amber-700 hover:bg-amber-600 text-white font-bold py-3 px-6 rounded text-xs transition-colors tracking-wide">
+                    첫 화면으로 돌아가기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 푸터 -->
+    <footer class="py-2 text-center text-[10px] text-stone-600 border-t border-stone-950">
+        &copy; 2026 BUCKSHOT ROULETTE Web Edition. Powered by Gemini.
+    </footer>
+
+    <!-- 자바스크립트 로직 -->
+    <script>
+        // ----------------------------------------------------
+        // Web Audio API 기반 오디오 합성기 (효과음 생성기)
+        // ----------------------------------------------------
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            const now = audioCtx.currentTime;
+
+            if (type === 'shoot-live') {
+                const bufferSize = audioCtx.sampleRate * 0.5;
+                const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                const noise = audioCtx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(1000, now);
+                filter.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+
+                const gain = audioCtx.createGain();
+                gain.gain.setValueAtTime(1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                const osc = audioCtx.createOscillator();
+                const oscGain = audioCtx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(120, now);
+                osc.frequency.exponentialRampToValueAtTime(30, now + 0.3);
+
+                oscGain.gain.setValueAtTime(0.8, now);
+                oscGain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+
+                osc.connect(oscGain);
+                oscGain.connect(audioCtx.destination);
+
+                noise.start(now);
+                osc.start(now);
+                noise.stop(now + 0.5);
+                osc.stop(now + 0.5);
+
+            } else if (type === 'shoot-blank') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.setValueAtTime(400, now + 0.05);
+
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.1);
+
+            } else if (type === 'rack') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.setValueAtTime(300, now + 0.08);
+                osc.frequency.setValueAtTime(100, now + 0.15);
+
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.setValueAtTime(0.01, now + 0.07);
+                gain.gain.setValueAtTime(0.2, now + 0.08);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.3);
+
+            } else if (type === 'beer') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(600, now);
+                osc.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
+                
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.2);
+
+            } else if (type === 'cigarettes') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(2000, now);
+                osc.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+                
+                gain.gain.setValueAtTime(0.08, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.45);
+
+            } else if (type === 'saw') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(100, now);
+                osc.frequency.setValueAtTime(250, now + 0.1);
+                osc.frequency.setValueAtTime(120, now + 0.2);
+                
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.3);
+
+            } else if (type === 'magnifier') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(1000, now + 0.3);
+                
+                gain.gain.setValueAtTime(0.12, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.4);
+
+            } else if (type === 'handcuffs') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.setValueAtTime(500, now + 0.05);
+                osc.frequency.setValueAtTime(900, now + 0.1);
+                
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.25);
+            }
+        }
+
+        // ----------------------------------------------------
+        // 게임 상태 정의
+        // ----------------------------------------------------
+        const ITEM_TYPES = {
+            MAGNIFIER: { name: '돋보기', icon: '🔍' },
+            CIGARETTES: { name: '담배', icon: '🚬' },
+            BEER: { name: '맥주', icon: '🍺' },
+            SAW: { name: '쓸개톱', icon: '🪚' },
+            HANDCUFFS: { name: '수갑', icon: '⛓️' }
+        };
+
+        let gameState = {
+            playerName: 'YOU', // 플레이어 이름 상태 추가
+            round: 1,
+            playerHp: 4,
+            maxHp: 4, 
+            dealerHp: 4,
+            bullets: [], 
+            initialLive: 0,
+            initialBlank: 0,
+            playerItems: [],
+            dealerItems: [],
+            currentTurn: 'player', 
+            isDoubleDamage: false,
+            playerHandcuffed: false,
+            dealerHandcuffed: false,
+            dealerKnownBullet: null, 
+            isLockActions: false
+        };
+
+        // ----------------------------------------------------
+        // 게임 시작 및 라운드 설정
+        // ----------------------------------------------------
+        function startGame() {
+            // 입력받은 닉네임 설정 (기본값: YOU)
+            const rawInput = document.getElementById('nickname-input').value.trim();
+            gameState.playerName = rawInput ? rawInput.toUpperCase() : 'YOU';
+
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-container').classList.remove('hidden');
+            document.getElementById('session-display').innerText = '#' + Math.floor(Math.random() * 900000 + 100000);
+            resetGame();
+        }
+
+        function resetGame() {
+            gameState.round = 1;
+            gameState.maxHp = 4;
+            gameState.playerHp = gameState.maxHp;
+            gameState.dealerHp = gameState.maxHp;
+            gameState.playerItems = [];
+            gameState.dealerItems = [];
+            gameState.playerHandcuffed = false;
+            gameState.dealerHandcuffed = false;
+            gameState.isDoubleDamage = false;
+            gameState.dealerKnownBullet = null;
+            
+            document.getElementById('end-screen').classList.add('hidden');
+            
+            // UI의 플레이어 닉네임 즉시 업데이트
+            document.getElementById('player-name-display').innerText = gameState.playerName;
+            
+            addLog("시스템", `${gameState.playerName}님과의 서약 완료. 죽음의 룰렛이 준비되었습니다.`, "text-amber-500 font-bold");
+            initRound();
+        }
+
+        function initRound() {
+            gameState.isLockActions = true;
+            gameState.isDoubleDamage = false;
+            document.getElementById('saw-active-indicator').classList.add('hidden');
+            document.getElementById('round-indicator').innerText = `ROUND ${gameState.round}`;
+
+            let liveCount = 0;
+            let blankCount = 0;
+            
+            if (gameState.round === 1) {
+                liveCount = Math.floor(Math.random() * 2) + 2; 
+                blankCount = Math.floor(Math.random() * 2) + 2;
+            } else {
+                liveCount = Math.floor(Math.random() * 3) + 2; 
+                blankCount = Math.floor(Math.random() * 3) + 2;
+            }
+
+            gameState.initialLive = liveCount;
+            gameState.initialBlank = blankCount;
+
+            let tempBullets = [];
+            for (let i = 0; i < liveCount; i++) tempBullets.push('live');
+            for (let i = 0; i < blankCount; i++) tempBullets.push('blank');
+            
+            for (let i = tempBullets.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [tempBullets[i], tempBullets[j]] = [tempBullets[j], tempBullets[i]];
+            }
+            gameState.bullets = tempBullets;
+            gameState.dealerKnownBullet = null; 
+
+            updateUI();
+
+            const itemKeys = Object.keys(ITEM_TYPES);
+            const itemsToGive = gameState.round === 1 ? 2 : 3;
+
+            const bulletNotice = `⚡ 장전 완료: 실탄 ${liveCount}발 / 공포탄 ${blankCount}발`;
+            setActionText(bulletNotice);
+            addLog("알림", `샷건 장전 완료 - 실탄 ${liveCount}발 / 공포탄 ${blankCount}발`, "text-amber-400 font-bold");
+            playSound('rack');
+
+            const shotgun = document.getElementById('shotgun-svg');
+            shotgun.classList.add('scale-110');
+            setTimeout(() => { shotgun.classList.remove('scale-110'); }, 300);
+
+            setTimeout(() => {
+                for (let i = 0; i < itemsToGive; i++) {
+                    if (gameState.playerItems.length < 8) {
+                        const randomItem = itemKeys[Math.floor(Math.random() * itemKeys.length)];
+                        gameState.playerItems.push(randomItem);
+                    }
+                    if (gameState.dealerItems.length < 8) {
+                        const randomItem = itemKeys[Math.floor(Math.random() * itemKeys.length)];
+                        gameState.dealerItems.push(randomItem);
+                    }
+                }
+                updateUI();
+                addLog("알림", `새로운 아이템이 보급되었습니다.`, "text-stone-400");
+                
+                gameState.isLockActions = false;
+                startTurn();
+            }, 1000);
+        }
+
+        // ----------------------------------------------------
+        // 턴 제어
+        // ----------------------------------------------------
+        function startTurn() {
+            if (gameState.playerHp <= 0 || gameState.dealerHp <= 0) return;
+
+            if (gameState.bullets.length === 0) {
+                addLog("시스템", "탄을 전부 소모했습니다. 새로운 챔버를 준비합니다.", "text-amber-400");
+                gameState.round++;
+                setTimeout(() => {
+                    initRound();
+                }, 1500);
+                return;
+            }
+
+            if (gameState.currentTurn === 'player') {
+                if (gameState.playerHandcuffed) {
+                    addLog("규칙", `${gameState.playerName}님은 수갑에 묶여 이번 턴을 강제로 건너뜁니다!`, "text-red-400");
+                    gameState.playerHandcuffed = false;
+                    gameState.currentTurn = 'dealer';
+                    updateUI();
+                    setTimeout(startTurn, 1500);
+                } else {
+                    setActionText(`${gameState.playerName}의 차례입니다. 행동을 결정하십시오.`);
+                    enableControls(true);
+                }
+            } else {
+                if (gameState.dealerHandcuffed) {
+                    addLog("규칙", "딜러가 수갑에 묶여 턴을 건너뜁니다!", "text-green-400");
+                    gameState.dealerHandcuffed = false;
+                    gameState.currentTurn = 'player';
+                    updateUI();
+                    setTimeout(startTurn, 1500);
+                } else {
+                    setActionText("딜러가 생각 중입니다...");
+                    enableControls(false);
+                    setTimeout(dealerLogic, 1500);
+                }
+            }
+        }
+
+        // ----------------------------------------------------
+        // 플레이어 행동 제어
+        // ----------------------------------------------------
+        function usePlayerItem(index) {
+            if (gameState.isLockActions || gameState.currentTurn !== 'player') return;
+
+            const itemKey = gameState.playerItems[index];
+            if (!itemKey) return;
+
+            executeItemEffect('player', itemKey);
+            
+            gameState.playerItems.splice(index, 1);
+            updateUI();
+        }
+
+        function executeItemEffect(actor, itemKey) {
+            const actorName = actor === 'player' ? gameState.playerName : '딜러';
+            const item = ITEM_TYPES[itemKey];
+
+            addLog(actorName, `이(가) [${item.name}] ${item.icon} 을(를) 사용했습니다.`, actor === 'player' ? 'text-green-400' : 'text-red-400');
+
+            if (itemKey === 'MAGNIFIER') {
+                playSound('magnifier');
+                const nextBullet = gameState.bullets[0];
+
+                if (actor === 'player') {
+                    const graphic = document.getElementById('peek-bullet-graphic');
+                    if (nextBullet === 'live') {
+                        graphic.innerText = '실탄';
+                        graphic.className = 'w-16 h-28 rounded-lg border-4 border-red-600 bg-red-950 text-red-200 font-bold text-lg flex items-center justify-center shadow-lg';
+                    } else {
+                        graphic.innerText = '공포탄';
+                        graphic.className = 'w-16 h-28 rounded-lg border-4 border-stone-500 bg-stone-900 text-stone-300 font-bold text-lg flex items-center justify-center shadow-lg';
+                    }
+                    document.getElementById('magnifier-modal').classList.remove('hidden');
+                } else {
+                    gameState.dealerKnownBullet = nextBullet;
+                    dealerSpeech("과연 무엇이 들어있을까...");
+                }
+
+            } else if (itemKey === 'CIGARETTES') {
+                playSound('cigarettes');
+                if (actor === 'player') {
+                    gameState.playerHp += 1;
+                    addLog("시스템", `${gameState.playerName}님이 담배 향을 음미하며 체력을 1 회복했습니다. (오버 카운트 가동!)`, "text-green-500");
+                } else {
+                    gameState.dealerHp += 1;
+                    addLog("시스템", "딜러가 담배를 태우며 체력을 1 회복했습니다. (오버 카운트 가동!)", "text-red-400");
+                }
+
+            } else if (itemKey === 'BEER') {
+                playSound('beer');
+                
+                const ejected = gameState.bullets.shift();
+                const bulletKo = ejected === 'live' ? '실탄 🔴' : '공포탄 ⚪';
+                const textColor = ejected === 'live' ? 'text-red-500 font-bold' : 'text-stone-300';
+                
+                setActionText(`약실에서 [${bulletKo}] 배출됨!`);
+                addLog("시스템", `맥주를 마시며 장전을 당겨 약실의 [${bulletKo}]을(를) 배출시켰습니다.`, `${textColor}`);
+                
+                playSound('rack');
+
+                gameState.dealerKnownBullet = null;
+
+                if (gameState.bullets.length === 0) {
+                    gameState.isLockActions = true;
+                    setTimeout(() => {
+                        gameState.isLockActions = false;
+                        startTurn();
+                    }, 1200);
+                }
+
+            } else if (itemKey === 'SAW') {
+                playSound('saw');
+                if (gameState.isDoubleDamage) {
+                    addLog("시스템", "이미 총열이 쓸려있어 중복 사용할 수 없습니다.", "text-stone-500");
+                    return;
+                }
+                gameState.isDoubleDamage = true;
+                document.getElementById('saw-active-indicator').classList.remove('hidden');
+                addLog("시스템", "총열을 쓸어내려 다음 발사 시 데미지가 2배가 됩니다!", "text-red-500 font-bold");
+
+            } else if (itemKey === 'HANDCUFFS') {
+                playSound('handcuffs');
+                if (actor === 'player') {
+                    if (gameState.dealerHandcuffed) {
+                        addLog("시스템", "이미 상대방이 수갑에 채워진 상태입니다.", "text-stone-500");
+                        return;
+                    }
+                    gameState.dealerHandcuffed = true;
+                    addLog("시스템", "딜러의 손목에 쇠사슬 수갑을 채웠습니다.", "text-amber-600");
+                } else {
+                    if (gameState.playerHandcuffed) return;
+                    gameState.playerHandcuffed = true;
+                    addLog("시스템", `딜러가 ${gameState.playerName}님의 손목에 수갑을 채웠습니다!`, "text-red-600");
+                }
+            }
+        }
+
+        function closeMagnifier() {
+            document.getElementById('magnifier-modal').classList.add('hidden');
+        }
+
+        function shoot(targetSelf) {
+            if (gameState.isLockActions) return;
+            gameState.isLockActions = true;
+            enableControls(false);
+
+            const activeBullet = gameState.bullets.shift();
+            const currentDamage = gameState.isDoubleDamage ? 2 : 1;
+
+            gameState.isDoubleDamage = false;
+            document.getElementById('saw-active-indicator').classList.add('hidden');
+
+            const shooter = gameState.currentTurn;
+            const gunSvg = document.getElementById('shotgun-svg');
+
+            if (shooter === 'player') {
+                if (targetSelf) {
+                    gunSvg.style.transform = 'rotate(-45deg) translate(-10px, -10px)';
+                    addLog(gameState.playerName, "자신에게 총구를 겨누고...", "text-stone-300");
+                } else {
+                    gunSvg.style.transform = 'translateY(-15px) scale(1.05)';
+                    addLog(gameState.playerName, "딜러에게 총구를 직진 조준하고...", "text-stone-300");
+                }
+            } else {
+                if (targetSelf) {
+                    gunSvg.style.transform = 'rotate(45deg) translate(-10px, 10px)';
+                    addLog("딜러", "자신의 머리에 총을 가져대고...", "text-stone-300");
+                } else {
+                    gunSvg.style.transform = 'translateY(15px) scale(1.05)';
+                    addLog("딜러", "당신에게 총구를 사납게 조준하고...", "text-stone-300");
+                }
+            }
+
+            setTimeout(() => {
+                const overlay = document.getElementById('flash-overlay');
+                
+                if (activeBullet === 'live') {
+                    playSound('shoot-live');
+                    
+                    const muzzle = document.getElementById('muzzle-flash');
+                    muzzle.style.opacity = '1';
+                    setTimeout(() => { muzzle.style.opacity = '0'; }, 100);
+
+                    document.body.classList.add('screen-shake');
+                    overlay.classList.add('flash-red');
+                    setTimeout(() => {
+                        document.body.classList.remove('screen-shake');
+                        overlay.classList.remove('flash-red');
+                    }, 600);
+
+                    let targetIsPlayer = false;
+                    if (shooter === 'player') {
+                        targetIsPlayer = targetSelf;
+                    } else {
+                        targetIsPlayer = !targetSelf;
+                    }
+
+                    if (targetIsPlayer) {
+                        gameState.playerHp = Math.max(0, gameState.playerHp - currentDamage);
+                        addLog("💥 격발!", `탕!! 실탄이었습니다. ${gameState.playerName}님은 ${currentDamage}의 피해를 입었습니다!`, "text-red-500 font-bold text-xs");
+                    } else {
+                        gameState.dealerHp = Math.max(0, gameState.dealerHp - currentDamage);
+                        addLog("💥 격발!", `탕!! 실탄이었습니다. 딜러는 ${currentDamage}의 피해를 입었습니다!`, "text-green-500 font-bold text-xs");
+                    }
+
+                    if (shooter === 'player') {
+                        gameState.currentTurn = 'dealer';
+                    } else {
+                        gameState.currentTurn = 'player';
+                    }
+
+                } else {
+                    playSound('shoot-blank');
+                    
+                    overlay.classList.add('flash-white');
+                    setTimeout(() => { overlay.classList.remove('flash-white'); }, 400);
+
+                    addLog("💨 철컥", "공포탄이었습니다. 차가운 쇠소리만 퍼집니다.", "text-stone-400");
+
+                    if (targetSelf) {
+                        addLog("보너스 규칙", "자신에게 공포탄 사격에 성공하여 기회를 유지합니다!", "text-yellow-500 font-bold");
+                    } else {
+                        if (shooter === 'player') {
+                            gameState.currentTurn = 'dealer';
+                        } else {
+                            gameState.currentTurn = 'player';
+                        }
+                    }
+                }
+
+                gunSvg.style.transform = 'none';
+                gameState.dealerKnownBullet = null;
+                updateUI();
+
+                setTimeout(() => {
+                    if (gameState.playerHp <= 0) {
+                        endGame(false);
+                    } else if (gameState.dealerHp <= 0) {
+                        endGame(true);
+                    } else {
+                        gameState.isLockActions = false;
+                        startTurn();
+                    }
+                }, 1200);
+
+            }, 1000);
+        }
+
+        // ----------------------------------------------------
+        // 딜러 AI 알고리즘
+        // ----------------------------------------------------
+        function dealerLogic() {
+            if (gameState.playerHp <= 0 || gameState.dealerHp <= 0 || gameState.bullets.length === 0) return;
+
+            const totalBullets = gameState.bullets.length;
+            const liveCount = gameState.bullets.filter(b => b === 'live').length;
+            const blankCount = totalBullets - liveCount;
+            const liveRatio = liveCount / totalBullets;
+
+            addLog("시스템", "딜러가 장비를 점검하며 기색을 살핍니다...", "text-stone-600");
+
+            let itemUsedThisTurn = false;
+
+            for (let i = 0; i < gameState.dealerItems.length; i++) {
+                const itemKey = gameState.dealerItems[i];
+
+                if (itemKey === 'CIGARETTES') {
+                    gameState.dealerItems.splice(i, 1);
+                    executeItemEffect('dealer', 'CIGARETTES');
+                    itemUsedThisTurn = true;
+                    break;
+                }
+
+                if (itemKey === 'HANDCUFFS' && !gameState.playerHandcuffed && (liveRatio >= 0.5 || gameState.dealerKnownBullet === 'live')) {
+                    gameState.dealerItems.splice(i, 1);
+                    executeItemEffect('dealer', 'HANDCUFFS');
+                    itemUsedThisTurn = true;
+                    break;
+                }
+
+                if (itemKey === 'MAGNIFIER' && gameState.dealerKnownBullet === null) {
+                    gameState.dealerItems.splice(i, 1);
+                    executeItemEffect('dealer', 'MAGNIFIER');
+                    itemUsedThisTurn = true;
+                    break;
+                }
+
+                if (itemKey === 'SAW' && !gameState.isDoubleDamage) {
+                    if (gameState.dealerKnownBullet === 'live' || (liveRatio === 1.0 && liveCount > 0)) {
+                        gameState.dealerItems.splice(i, 1);
+                        executeItemEffect('dealer', 'SAW');
+                        itemUsedThisTurn = true;
+                        break;
+                    }
+                }
+
+                if (itemKey === 'BEER' && gameState.dealerKnownBullet !== 'live') {
+                    if (liveRatio < 0.35 && blankCount > 0) {
+                        gameState.dealerItems.splice(i, 1);
+                        executeItemEffect('dealer', 'BEER');
+                        itemUsedThisTurn = true;
+                        break;
+                    }
+                }
+            }
+
+            if (itemUsedThisTurn) {
+                updateUI();
+                setTimeout(dealerLogic, 1200);
+                return;
+            }
+
+            if (gameState.dealerKnownBullet === 'live') {
+                dealerSpeech(`확실한 실탄이다... 작별을 고하지, ${gameState.playerName}.`);
+                setTimeout(() => { shoot(false); }, 1000); 
+            } 
+            else if (gameState.dealerKnownBullet === 'blank') {
+                dealerSpeech("공포탄이다. 기회는 다시 내 것이다.");
+                setTimeout(() => { shoot(true); }, 1000); 
+            } 
+            else {
+                if (liveRatio > 0.5) {
+                    dealerSpeech("확률은 내 편에 서있다.");
+                    setTimeout(() => { shoot(false); }, 1000);
+                } else if (liveRatio === 0.5) {
+                    const rng = Math.random();
+                    if (rng > 0.5) {
+                        dealerSpeech(`반반의 도박이다. ${gameState.playerName}, 너를 쏘겠다.`);
+                        setTimeout(() => { shoot(false); }, 1000);
+                    } else {
+                        dealerSpeech("내 운을 시험해 보지.");
+                        setTimeout(() => { shoot(true); }, 1000);
+                    }
+                } else {
+                    dealerSpeech("여기에 들은 건 가짜겠지.");
+                    setTimeout(() => { shoot(true); }, 1000);
+                }
+            }
+        }
+
+        function dealerSpeech(msg) {
+            const bubble = document.getElementById('dealer-bubble');
+            bubble.innerText = msg;
+            bubble.classList.remove('hidden');
+            setTimeout(() => { bubble.classList.add('hidden'); }, 3000);
+        }
+
+        // ----------------------------------------------------
+        // UI 유틸 함수
+        // ----------------------------------------------------
+        function updateUI() {
+            renderHp('player-hp-container', gameState.playerHp, 'text-green-500');
+            renderHp('dealer-hp-container', gameState.dealerHp, 'text-red-500');
+
+            renderItems('player-items-container', gameState.playerItems, true);
+            renderItems('dealer-items-container', gameState.dealerItems, false);
+
+            document.getElementById('bullets-count').innerText = gameState.bullets.length;
+            const mainBulletsCount = document.getElementById('bullets-count-main');
+            if (mainBulletsCount) mainBulletsCount.innerText = gameState.bullets.length;
+
+            document.getElementById('player-handcuffed-indicator').innerHTML = gameState.playerHandcuffed ? `<span class="bg-amber-950 border border-amber-600 text-amber-500 text-[9px] px-1.5 py-0.5 rounded">⛓️ 묶임</span>` : '';
+            document.getElementById('dealer-handcuffed-indicator').innerHTML = gameState.dealerHandcuffed ? `<span class="bg-amber-950 border border-amber-600 text-amber-500 text-[9px] px-1.5 py-0.5 rounded">⛓️ 묶임</span>` : '';
+        }
+
+        function renderHp(containerId, current, colorClass) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            const displayCount = Math.max(4, current);
+            
+            for (let i = 0; i < displayCount; i++) {
+                const tube = document.createElement('div');
+                if (i < current) {
+                    tube.className = `w-4 h-6 border border-stone-700 bg-red-600 rounded-sm flex flex-col justify-end p-0.5 animate-pulse shadow-md shadow-red-950/50`;
+                    tube.innerHTML = `<div class="w-full h-full bg-red-500 rounded-sm"></div>`;
+                } else {
+                    tube.className = `w-4 h-6 border border-stone-800 bg-stone-900 rounded-sm`;
+                }
+                container.appendChild(tube);
+            }
+        }
+
+        function renderItems(containerId, items, isPlayer) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+
+            if (items.length === 0) {
+                container.innerHTML = `<span class="text-xs text-stone-700 italic flex items-center h-10">아이템 없음</span>`;
+                return;
+            }
+
+            items.forEach((itemKey, index) => {
+                const item = ITEM_TYPES[itemKey];
+                const btn = document.createElement('button');
+                
+                if (isPlayer) {
+                    btn.className = "w-10 h-10 rounded border border-stone-700 bg-stone-900 hover:bg-stone-800 active:bg-stone-950 flex items-center justify-center text-lg relative transition-colors shadow-md";
+                    btn.innerHTML = `${item.icon}`;
+                    btn.onclick = () => usePlayerItem(index);
+                } else {
+                    btn.className = "w-10 h-10 rounded border border-red-950 bg-stone-950 flex items-center justify-center text-lg relative cursor-default shadow-md";
+                    btn.innerHTML = `${item.icon}`;
+                }
+
+                container.appendChild(btn);
+            });
+        }
+
+        function setActionText(text) {
+            document.getElementById('action-text').innerText = text;
+        }
+
+        function enableControls(enabled) {
+            const isRoundActive = (gameState.bullets.length > 0 && !gameState.isLockActions);
+            document.getElementById('btn-shoot-self').disabled = !(enabled && isRoundActive);
+            document.getElementById('btn-shoot-dealer').disabled = !(enabled && isRoundActive);
+        }
+
+        function addLog(speaker, text, colorClass = "text-stone-500") {
+            const consoleDiv = document.getElementById('console-logs');
+            if (!consoleDiv) return;
+            const logItem = document.createElement('div');
+            logItem.className = `py-0.5 border-b border-stone-900/40 ${colorClass}`;
+            logItem.innerHTML = `[${speaker}] ${text}`;
+            consoleDiv.appendChild(logItem);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+
+        function endGame(isPlayerWin) {
+            document.getElementById('end-screen').classList.remove('hidden');
+            const title = document.getElementById('end-title');
+            const desc = document.getElementById('end-desc');
+
+            if (isPlayerWin) {
+                title.innerText = "🏆 이겼습니다!";
+                title.className = "text-3xl font-bold tracking-widest text-green-500 animate-bounce";
+                desc.innerText = `${gameState.playerName}님이 딜러를 물리치고 최종 승리했습니다! 계약을 이행하고 무사히 탈출합니다.`;
+                addLog("게임 오버", `${gameState.playerName}님이 이겼습니다!`, "text-green-400 font-bold");
+            } else {
+                title.innerText = "💀 패배했습니다";
+                title.className = "text-3xl font-bold tracking-widest text-red-600 animate-pulse";
+                desc.innerText = "심장 마비 장치가 정지하고 기계가 멈췄습니다. 딜러가 승리하여 당신의 영혼을 수거해갑니다.";
+                addLog("게임 오버", "딜러가 승리했습니다. 당신은 패배했습니다.", "text-red-500 font-bold");
+            }
+        }
+
+        function returnToStartScreen() {
+            document.getElementById('end-screen').classList.add('hidden');
+            document.getElementById('game-container').classList.add('hidden');
+            document.getElementById('start-screen').classList.remove('hidden');
+        }
+    </script>
+
+</body>
+</html>
